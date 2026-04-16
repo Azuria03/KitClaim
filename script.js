@@ -114,17 +114,28 @@ async function fetchParticipants() {
   const btn = document.getElementById('fetchBtn');
   btn.disabled = true; btn.textContent = 'Fetching…';
   try {
-    const res = await fetch(`${gasUrl}?action=participants`);
+    const res = await fetch(`${gasUrl}?action=participants`, { mode: 'cors', cache: 'no-store' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     if (!Array.isArray(data)) throw new Error('Invalid data format');
 
-    // Re-apply any local claim state
+    // Preserve local claimed state and pending queue entries
+    const localClaims = Object.fromEntries(
+      Object.values(participants)
+        .filter(p => p.claimed)
+        .map(p => [p.bib, p.claimTime || ''])
+    );
+    const queuedClaims = Object.fromEntries(queue.map(q => [q.bib, q.kitTime || '']));
+
     participants = {};
     data.forEach(p => {
-      const existing = participants[p.bib];
-      participants[p.bib] = {
-        bib: String(p.bib).trim(),
+      const bib = String(p.bib).trim();
+      const pendingClaimTime = queuedClaims[bib];
+      const existingClaimTime = localClaims[bib] || pendingClaimTime;
+      const wasLocallyClaimed = !!existingClaimTime;
+
+      participants[bib] = {
+        bib,
         name: p.name || `${p.firstName} ${p.lastName}`.trim(),
         firstName: p.firstName || '',
         lastName: p.lastName || '',
@@ -135,8 +146,8 @@ async function fetchParticipants() {
         eventShirt: p.eventShirt || '',
         singlet: p.singlet || '',
         shirtSize: p.shirtSize || '',
-        claimed: (p.claimed === true || String(p.claimed).toUpperCase() === 'YES'),
-        claimTime: p.claimTime || '',
+        claimed: wasLocallyClaimed || (p.claimed === true || String(p.claimed).toUpperCase() === 'YES'),
+        claimTime: existingClaimTime || p.claimTime || '',
         source: p.source || 'race'
       };
     });
@@ -312,6 +323,7 @@ async function runSync() {
     try {
       const res = await fetch(gasUrl, {
         method: 'POST',
+        mode: 'cors',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'claim', ...entry, staff })
       });
@@ -348,6 +360,7 @@ async function autoSync() {
     try {
       const res = await fetch(gasUrl, {
         method: 'POST',
+        mode: 'cors',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'claim', ...entry, staff })
       });
